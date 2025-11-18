@@ -1,0 +1,517 @@
+
+!---LUA BEGIN
+! assert(loadfile('COLD.lua'))()
+! assert(loadfile('Dibble.lua'))()
+!---LUA END
+
+$name = "AK_VS_SS"
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Header
+  Mesh DB "FISOC_Ex5_RM"
+End
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Constants
+! per annum constants
+!  Bottom surface Name = String "bottom bed_new"
+  sea level = Real #zsl  !0.0
+  water density = Real #rhoo
+  Sea Spring Timestep Size = Real 0.01
+End
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Simulation
+  Bandwidth optimization = Logical False
+  Coordinate System  = Cartesian 3D
+
+  Simulation Type = "steady"
+!  Simulation Type = "transient"
+!  Timestepping Method = "bdf"
+!  BDF Order = 1
+
+  Timestep Intervals = 1
+  TimeStep Size = Real 0.01
+
+  Output Intervals = Integer 1
+
+  Steady State Min Iterations = 1
+  Steady State Max Iterations = 1
+
+  OutPut File = "$name$.result"
+
+  Initialize Dirichlet Conditions = Logical False
+
+  Extruded Mesh Levels = Integer #MLEV
+  Extruded Mesh Density = Variable Coordinate 1
+    Real MATC "1.0+2.5*tx"
+
+  max output level = 5
+End
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Body 1
+  Equation = 1
+  Name = "Ice sheet"
+  Material = 1
+  Body Force = 1
+  Initial Condition = 1 
+End
+
+Body 2
+  Name = "lower_surface"
+  Equation = 2
+  Material = 2
+  Body Force = 2
+  Initial Condition = 2 
+End
+
+Body 3
+  Name = "upper_surface"
+  Equation = 3
+  Material = 3
+  Body Force = 3
+  Initial Condition = 3
+End
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Initial Condition 1 
+  depth = Real 0.0
+  height = Real 0.0
+  Pressure = Real 0.0
+  Velocity 1 = Real 0.0
+  Velocity 2 = Real 10.0
+  Velocity 3 = Real 0.0
+  Normal Vector 1 = Real 0.0
+  Normal Vector 2 = Real 0.0
+  Normal Vector 3 = Real 0.0
+  Temperature = Real -5.0
+  bedrock = Variable Coordinate 2 
+    Real Procedure  "FISOC_Elmer_geometries" "ex5_bedrock_w"
+End
+
+Initial Condition 2 
+  bedrock = Variable Coordinate 2 
+    Real Procedure  "FISOC_Elmer_geometries" "ex5_bedrock_w"
+  FS lower = Variable Coordinate 2
+    Real Procedure  "FISOC_Elmer_geometries" "Ex5_LowerSurface_w"
+  ReferenceFS lower = Variable Coordinate 2
+    Real Procedure  "FISOC_Elmer_geometries" "Ex5_LowerSurface_w"
+End
+
+Initial Condition 3 
+  FS upper = Variable Coordinate 2 
+    Real Procedure  "FISOC_Elmer_geometries" "Ex5_UpperSurface_w"
+  ReferenceFS upper = Variable Coordinate 2 
+    Real Procedure  "FISOC_Elmer_geometries" "Ex5_UpperSurface_w"
+End
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Body Force 1
+  Flow BodyForce 1 = Real 0.0
+  Flow BodyForce 2 = Real 0.0
+  Flow BodyForce 3 = Real #gravity ! in yearinsec
+End
+
+Body Force 2
+  FS lower Accumulation Flux 1 = Real 0.0e0
+  FS lower Accumulation Flux 2 = Real 0.0e0
+  FS lower Accumulation Flux 3 = Real 0.0e0
+End
+
+Body Force 3
+  FS upper Accumulation Flux 1 = Real 0.0e0
+  FS upper Accumulation Flux 2 = Real 0.0e0
+  FS upper Accumulation Flux 3 = Real 0.0e0
+End
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Material 1
+
+  Density = Real #rhoi
+  Cauchy = Logical True
+
+  ! viscosity stuff
+  !----------------
+  Viscosity Model = String Glen
+  Viscosity =  Real 1.0
+
+  Glen Exponent = Real 3.0
+  Glen Enhancement Factor = Real 1.0
+
+  Limit Temperature = Real -10.0 ! textbook value
+
+!  Relative Temperature = Variable Temperature, Pressure ! needed by vectorized stokes solver
+!    Real lua "relativetemp(tx[0],tx[1])"
+  Relative Temperature = Real -5.0
+
+  Rate Factor 1 = Real #A1 ! yearinsec
+  Rate Factor 2 = Real #A2 
+  Activation Energy 1 = Real #Q1    
+  Activation Energy 2 = Real #Q2 
+
+
+  Critical Shear Rate =  Real 1.0E-10 ! units: s-1
+  sea level = Real #zsl
+End
+
+Material 2
+  Density = Real #rhoi
+  Min FS lower = Equals bedrock
+  Max FS lower = Real 0.0
+End
+
+Material 3
+  Density = Real #rhoi
+  Min FS upper = Variable bedrock
+    Real MATC "tx(0) + 10.0"
+  Max FS upper = Variable ReferenceFS upper
+    Real MATC "tx(0) + 10000.0"
+End
+
+
+!%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+Equation 1
+  Active Solvers (7) = 1 2 3 4 5 6 12
+End
+
+Equation 2 ! lower surface
+  Active Solvers (4) = 7 9 10 11
+  Convection = Computed
+  Flow Solution Name = String "Flow Solution"
+End 
+
+Equation 3 ! upper surface
+  Active Solvers (1) = 8
+  Convection = Computed
+  Flow Solution Name = String "Flow Solution"
+End  
+
+
+
+!%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+! update variables from restart file - I think this can be exported in another solver. Like navier stokes
+Solver 1
+  Exec Solver = Never
+  Equation = "updateExportedVars"
+  procedure = "ElmerIceSolvers" "UpdateExport"
+  Variable = -nooutput dumy
+  Exported Variable 1 = "bed_new"
+  Exported Variable 2 = "vx"
+  Exported Variable 3 = "vy"
+  Exported Variable 4 = "vobs"
+  Exported Variable 5  = "smbref"
+  Exported Variable 6  ="bmb_susheel"
+  Exported Variable 7 = "deltat_basin"
+  Exported Variable 8 = "q_geo"
+  Exported Variable 9 = "as_perp_apl"
+  Exported Variable 10 = "thickness"
+  Exported Variable 11 = "surface"
+  Exported Variable 12 = beta
+
+  Update Exported Variables = True
+End
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!Structured Mesh Mapper !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!! Solver Fortran File: StructuredMeshMapper.F90                                                !!
+!! Solver Name:  StructuredMeshMapper                                                           !!
+!! Required Output Variable(s):                                                                 !! 
+!! Required Input Variable(s): Coordinates, Dot product tolerance (DPtol), minimum height (MINH)!!
+!! (Correct surface = Logical True), top and bottom free surface names, for varying surfaces.   !!
+!! Optional Output Variable(s): None                                                            !!
+!! Optional Input Variable(s): None                                                             !! 
+!! Maps mesh between bottom and top surface.                                                    !!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Solver 2
+  Exec Solver = "Before All"
+  Procedure = "StructuredMeshMapper" "StructuredMeshMapper"
+
+  Active Coordinate = Integer 3
+  Dot Product Tolerance = Real #DPtol
+  Minimum Height = Real #MINH
+
+  Top surface Variable Name = String FS upper
+  Bottom surface Variable Name = String FS lower
+
+  ! From Greenland set up:
+  Displacement Mode = Logical False
+  Correct Surface = Logical True
+End
+
+! Computes height and depth assuming an extruded mesh.
+Solver 3
+  !Exec Solver = Never
+  Exec Solver = "before Timestep" 
+  Equation = "HeightDepth"
+  Procedure = "StructuredProjectToPlane" "StructuredProjectToPlane"
+  Active Coordinate = Integer 3
+  Operator 1 = depth
+  Operator 2 = height
+End 
+
+Solver 4
+  !Exec Solver = Never
+  Equation = "Normal Vector"
+  Procedure = "ElmerIceSolvers" "ComputeNormalSolver"
+  Variable = "Normal Vector"
+  Variable DOFs = 3
+  ComputeAll = Logical False ! Only compute bottom surface normal
+  Optimize Bandwidth = Logical False
+End
+
+Solver 5
+!  Exec solver = never
+  Equation = Fw
+  Procedure = "ElmerIceSolvers" "GetHydrostaticLoads"
+  Variable = Fw[Fwater:3]
+  Variable DOFs = 3
+End
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!! STOKES SOLVER !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Solver 6
+  Equation = "Stokes-Vec"
+  Procedure = "IncompressibleNSVec" "IncompressibleNSSolver"
+
+  Div-Curl Discretization = Logical False
+  Constant-Viscosity Start = Logical True
+  Optimize Bandwidth = Logical True
+  Flow Model = Stokes Flow
+  Stabilization Method = String Stabilized
+
+  Linear System Solver = direct
+  Linear System direct Method = mumps
+!  mumps percentage increase working space = integer 100  
+
+  Nonlinear System Convergence Tolerance  = 1.0e-6
+  Nonlinear System Max Iterations = 40 ! 
+  Nonlinear System Newton After Iterations = 15 
+  Nonlinear System Newton After Tolerance = 1.0e-03 
+  Nonlinear System Relaxation Factor = 0.8 ! 2/3
+ 
+  ! Timings of the solver
+  Linear System Timing = Logical True
+  Linear System Timing Cumulative = Logical True
+  Solver Timing = Logical True
+  Solver Timing Cumulative = Logical True
+
+  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  
+  ! Convergence on timelevel (not required here)
+  !---------------------------------------------
+  Steady State Convergence Tolerance = Real 1.0e-6
+
+  !Relative Integration Order = -1
+  !Number of Integration Points = Integer 21 ! 21, 28, 44, 64, ...
+
+  schur: bubbles in global system = logical false
+
+  ! From Chen's MISOMIP sif:  
+  Calculate Loads = True
+
+  Exported Variable 1 = "Temperature"
+  Exported Variable 1 DOFs = 1
+  Exported Variable 2 = -dofs 4 "Flow Solution Loads" 
+  Exported Variable 3 = -dofs 1 bedrock
+End
+
+!!!!!!!!!!!!!!!!!!!!!!! Free surfaceSolver !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Solver 7
+  Exec Solver = Never
+  !Exec Solver = "After TimeStep"
+  Equation =  String "Lower Free surface"
+  Variable = "FS lower"
+  Variable DOFs = 1
+  Procedure = "FreeSurfaceSolver" "FreeSurfaceSolver"
+  Apply Dirichlet = Logical True
+  Linear System Solver = Iterative
+  Linear System Iterative Method = BiCGStab
+  Linear System Max Iterations  = 500
+  Linear System Preconditioning = ILU1
+  Linear System Convergence Tolerance = 1.0e-07
+  Nonlinear System Max Iterations = 100
+  Nonlinear System Min Iterations = 2
+  Nonlinear System Convergence Tolerance = 1.0e-06
+  Steady State Convergence Tolerance = 1.0e-4
+  Stabilization Method = Stabilized
+  Flow Solution Name = String "Flow Solution"
+  Use Accumulation = Logical True
+!  Normal Flux = Logical False
+  Exported Variable 1 = FS lower Residual
+  Exported Variable 1 DOFS = 1
+  Exported Variable 2 = ReferenceFS lower
+  Exported Variable 2 DOFS = 1
+End
+
+Solver 8
+  Exec Solver = Never
+  !Exec Solver = "After TimeStep"
+  Equation =  String "Upper Free surface"
+  Variable = "FS upper"
+  Variable DOFs = 1
+  Procedure = "FreeSurfaceSolver" "FreeSurfaceSolver"
+  Apply Dirichlet = Logical True
+  Linear System Solver = Iterative
+  Linear System Iterative Method = BiCGStab
+  Linear System Max Iterations  = 500
+  Linear System Preconditioning = ILU1
+  Linear System Convergence Tolerance = 1.0e-07
+  Nonlinear System Max Iterations = 100
+  Nonlinear System Min Iterations = 2
+  Nonlinear System Convergence Tolerance = 1.0e-06
+  Steady State Convergence Tolerance = 1.0e-4
+!  Stabilization Method = Bubbles
+  Stabilization Method = Stabilized
+  Flow Solution Name = String "Flow Solution"
+  Use Accumulation = Logical True
+  Normal Flux = Logical False
+  Exported Variable 1 =  FS upper Residual
+  Exported Variable 1 DOFS = 1
+  Exported Variable 2 = ReferenceFS upper
+  Exported Variable 2 DOFS = 1
+End
+
+Solver 10
+  Exec Solver = "Never"
+  Equation = "GroundedMask"
+  Procedure = "ElmerIceSolvers" "GroundedSolver"
+  Variable = GroundedMask
+  lower surface variable = string "Fs lower"
+!  bedrock variable = string bed_new
+  bedrock variable = string bedrock
+  Variable DOFs = 1
+  Toler = Real #GLTolerance
+End
+
+Solver 9
+  Exec Solver = Before timestep
+!  Exec Solver = Never
+  Equation = "GroundedMaskInit"
+  Procedure = "ElmerIceSolvers" "GroundedSolver"
+  Variable = GroundedMask
+  lower surface variable = string "Fs lower"
+!  bedrock variable = string bed_new
+  bedrock variable = string bedrock
+  Variable DOFs = 1
+  Toler = Real #GLTolerance
+End
+
+!!!!!!!!!!!!!!!! StructuredProjectToPlane!!!!!!!!!!!!!!!!!
+Solver 11
+  Equation = "project2Dto3D"
+  Procedure = "StructuredProjectToPlane" "StructuredProjectToPlane"
+
+  Active Coordinate = Integer 3
+
+  Project to Everywhere = Logical True
+  !Dot Product Tolereance = Real
+
+  Variable 1 = groundedmask
+  Operator 1 = bottom
+End
+
+Solver 12
+  Exec Solver = String "after saving"
+  Equation = String "ResultOutput"
+  Procedure = File "ResultOutputSolve" "ResultOutputSolver"
+  Save Geometry Ids = Logical True
+  Output File Name = File $name
+  Output Format = String "vtu"
+  !Output Interval = Integer 20  ! vtu files every 20th timestep 
+  Output Directory = File #outdir
+  Vtu Format = Logical True
+  !Vtu Time Collection = Logical True ! get timestep of vtu files
+End
+
+
+!%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+!!!!!!!!!! Boundary Conditions!!!!!!!!!!!!!!!!!!!!!
+!%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+Boundary Condition 1
+  Name = "calving_front"
+  Target Boundaries(1)  = 3
+  Flow Force BC = logical True
+  External Pressure = Variable Coordinate 3
+      Real lua "sw_pressure(tx[0])"
+  Calving Front = logical true ! neumann condition
+  !Calving Front Mask = logical true ! needed for both connmask_front and connmask_combined
+
+  Compute Sea Pressure = Logical True
+End
+
+Boundary Condition 2
+  Name = "inland_boundary"
+  Target Boundaries(1)  = 1
+
+  !Normal-Tangential Velocity = Logical True ! this would change 1,2,3 direction (x,y,z)
+  !Slip Coefficient 1 = Real 1000.0 ! large drag (x,y)
+  !Slip Coefficient 2 = Real 1000.0 ! no slip
+  !Slip Coefficient 3 = Real 0.001 ! small drag (free to move in z)
+  Velocity 1 = Real 0.0
+  Velocity 2 = Real 0.0
+End
+
+Boundary Condition 3
+  Name = "sidewall"
+  Target Boundaries(2)  = 2 4
+
+  Normal-Tangential Velocity = Logical True
+  Normal-Tangential Velocity Rotate = Logical False
+
+  ComputeNormal = Logical True
+
+  Slip Coefficient 1 = Real 0.1
+  Slip Coefficient 2 = Real 0.0
+  Slip Coefficient 3 = Real 0.0
+End
+
+Boundary Condition 4
+  Name = "lower_surface"
+  Target Boundaries(1) = 5
+  Body Id = 2
+
+  Height = Real 0.0
+  !Grounding line moves = Logical false
+
+  Test Contact Tolerance = real 1.0e-10
+  Grounding Line Definition = String "Discontinuous"
+  Normal-Tangential Velocity = Logical True
+  ComputeNormal = Logical True
+  Flow Force BC = Logical True
+
+  Velocity 1 = Real 0.0
+  Velocity 1 Condition = Variable "groundedmask" 
+    Real MATC "tx + 0.5"
+
+  FS lower = Equals "bed_new"     
+  FS lower Condition = Variable "groundedmask"
+    Real MATC "tx + 0.5"  
+
+ !!!!! sliding law: Powerlaw !!!!!
+
+  Slip Coefficient 2 = Variable "beta", "groundedmask"
+     REAL procedure "USF_CoV" "TenPowerA_masked"
+  Slip Coefficient 3 = Variable "beta", "groundedmask"
+     REAL procedure "USF_CoV" "TenPowerA_masked"
+
+  External Pressure = Variable Coordinate 3
+      Real lua "sw_pressure(tx[0])"
+
+  Slip Coefficient 1 = Variable Coordinate 3
+    Real Procedure "ElmerIceUSF" "SeaSpring"
+  Compute Sea Spring = Logical True
+End
+
+Boundary Condition 5
+  Name = "upper_surface"
+  Target Boundaries(1) = 6
+  Body Id = 3
+
+  Top Surface = Equals "FS upper"
+  Depth = Real 0.0
+End
+
